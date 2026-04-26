@@ -1,8 +1,14 @@
 // ==UserScript==
-// @name         Linux.do Hub Marketplace Native Filter
+// @name         hub_pro
+// @name:zh-CN   hub_pro
 // @namespace    https://hub.linux.do/
-// @version      2.8.1
-// @description  用原页面列表样式筛选 Channel Hub 的 Badges、Free、模型关键字和热门度
+// @version      2.9.0
+// @description  Native-style filters for Linux.do Hub Marketplace Channel Hub, with badges, free-only, model keyword, popularity sort, and full-page listing.
+// @description:zh-CN  为 Linux.do Hub Marketplace 的 Channel Hub 增加原生风格筛选：Badges、只看 Free、模型关键字、热门度排序和一页显示全部。
+// @author       lhish
+// @license      MIT
+// @homepageURL  https://github.com/lhish/hub_pro
+// @supportURL   https://github.com/lhish/hub_pro/issues
 // @match        https://hub.linux.do/marketplace*
 // @match        https://hub.linux.do/marketplace/*
 // @run-at       document-start
