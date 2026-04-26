@@ -15,7 +15,9 @@
 
 ## 安装
 
-推荐从 GreasyFork 安装。发布完成后，GreasyFork 页面会提供一键安装按钮。
+推荐从 GreasyFork 安装：
+
+- [hub_pro - GreasyFork](https://greasyfork.org/zh-CN/scripts/575483-hub-pro)
 
 也可以从源码安装：
 
