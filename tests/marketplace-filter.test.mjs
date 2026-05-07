@@ -6,9 +6,32 @@ const source = fs.readFileSync(new URL("../hub_pro.user.js", import.meta.url), "
 const match = source.match(/const __TEST__ = ([\s\S]*?\n});\n\n\(/);
 assert.ok(match, "script should expose test helpers");
 
-const context = {};
+const context = { URL };
 vm.createContext(context);
 const helpers = vm.runInContext(`(${match[1].trim().replace(/;$/, "")})`, context);
+
+const normalizedState = helpers.normalizeState({
+  tag: "official",
+  badges: ["openai"],
+  free: false,
+  sort: "name_asc",
+  modelKeyword: "gpt",
+}, { tag: "all", badges: [], free: true, sort: "created_desc", modelKeyword: "" });
+assert.equal(normalizedState.tag, "official");
+assert.equal(normalizedState.free, false);
+assert.equal(normalizedState.modelKeyword, "gpt");
+assert.equal(helpers.panelModelKeywordValue(""), "");
+assert.equal(helpers.panelModelKeywordValue(undefined), "");
+assert.equal(helpers.cleanMarketplaceSearch(" test\u200b "), "test");
+assert.equal(helpers.cleanMarketplaceSearch("\u200b"), "");
+assert.equal(
+  helpers.marketplaceCacheKey("https://hub.linux.do/admin/marketplace/channels?page=1&first=20&search=%E2%80%8B%20gpt%20&tag=official&sort=name_asc"),
+  helpers.marketplaceCacheKey("https://hub.linux.do/admin/marketplace/channels?page=3&first=500&search=gpt"),
+);
+assert.notEqual(
+  helpers.marketplaceCacheKey("https://hub.linux.do/admin/marketplace/channels?search=gpt"),
+  helpers.marketplaceCacheKey("https://hub.linux.do/admin/marketplace/channels?search=claude"),
+);
 
 assert.equal(helpers.isFreeChannel({ channelModelPrices: [] }), true);
 assert.equal(helpers.isFreeChannel({
@@ -16,6 +39,14 @@ assert.equal(helpers.isFreeChannel({
 }), true);
 assert.equal(helpers.isFreeChannel({
   channelModelPrices: [{ price: { items: [{ pricing: { usagePerUnit: "0.01" } }] } }],
+}), false);
+assert.equal(helpers.isFreeChannel({
+  priceSummary: { allFree: true },
+  channelModelPrices: [{ price: { items: [{ pricing: { usagePerUnit: "1" } }] } }],
+}), true);
+assert.equal(helpers.isFreeChannel({
+  priceSummary: { allFree: false },
+  channelModelPrices: [],
 }), false);
 
 const badges = helpers.channelBadges({ type: "openai_responses", usesOfficialBaseURL: true, settings: {} });
@@ -33,6 +64,10 @@ assert.equal(helpers.channelMatches(
   { tag: "official", badges: [], free: true },
 ), true);
 assert.equal(helpers.channelMatches(
+  { type: "openai", usesOfficialBaseURL: true, settings: {}, channelModelPrices: [] },
+  { tag: "third_party", badges: [], free: true },
+), false);
+assert.equal(helpers.scriptOnlyChannelMatches(
   { type: "openai", usesOfficialBaseURL: true, settings: {}, channelModelPrices: [] },
   { tag: "third_party", badges: [], free: true },
 ), false);
@@ -114,9 +149,65 @@ const sortedByName = helpers.sortEdgesByScriptSort([
 ], { sort: "name_asc" }, new Map());
 assert.equal(sortedByName.map((edge) => edge.node.id).join(","), "a,b");
 
+const sortedByMultiplier = helpers.sortEdgesByScriptSort([
+  { node: { id: "mid", name: "mid", priceSummary: { multiplier: { min: 2, max: 4 } } } },
+  { node: { id: "high", name: "high", priceSummary: { multiplier: 9 } } },
+  { node: { id: "low", name: "low", priceSummary: { multiplier: "1.5" } } },
+], { sort: "multiplier_desc" }, new Map());
+assert.equal(sortedByMultiplier.map((edge) => edge.node.id).join(","), "high,mid,low");
+
 assert.equal(helpers.isChannelsGraphqlBody(JSON.stringify({ query: "query PublicChannels { channels(first: 1) { edges { node { id } } } }" })), true);
 assert.equal(helpers.isChannelsGraphqlBody(JSON.stringify({ query: "query MarketplaceModels { marketplaceModels { modelID } }" })), false);
 assert.equal(helpers.isChannelsGraphqlBody(JSON.stringify({ query: "query GetChannelProbeData { channelProbeData(input: { channelIDs: [1] }) { channelID points { successRequestCount } } }" })), false);
+assert.equal(helpers.isMarketplaceChannelsUrl("/admin/marketplace/channels?page=1&first=20"), true);
+assert.equal(helpers.isMarketplaceChannelsUrl("https://hub.linux.do/admin/marketplace/channels?page=1"), true);
+assert.equal(helpers.isMarketplaceChannelsUrl("/admin/graphql"), false);
+assert.equal(helpers.marketplaceRemainingPages(1, 80).join(","), "");
+assert.equal(helpers.marketplaceRemainingPages(5, 80).join(","), "2,3,4,5");
+assert.equal(helpers.marketplaceRemainingPages(100, 4).join(","), "2,3,4");
+assert.equal(helpers.marketplaceProgressLabel(2, 5, 120), "加载 Channel 2/5 页，已获取 120 个");
+assert.equal(helpers.marketplaceProgressLabel(8, 5, 600), "加载 Channel 5/5 页，已获取 600 个");
+
+const marketplacePayload = {
+  items: [
+    { id: "paid", name: "paid", type: "openai", usesOfficialBaseURL: false, settings: {}, supportedModels: ["gpt-4"], priceSummary: { allFree: false, multiplier: 3 } },
+    { id: "free-z", name: "free z", type: "zhipu", usesOfficialBaseURL: false, settings: {}, supportedModels: ["glm-z1"], priceSummary: { allFree: true, multiplier: 1 } },
+    { id: "free-o", name: "free o", type: "openai", usesOfficialBaseURL: true, settings: {}, supportedModels: ["gpt-5"], priceSummary: { allFree: true, multiplier: 2 } },
+  ],
+  totalCount: 3,
+  totalPages: 1,
+  page: 1,
+  first: 20,
+};
+const marketplaceFiltered = helpers.filterMarketplaceChannelsPayload(marketplacePayload, {
+  tag: "all",
+  badges: ["openai"],
+  free: true,
+  sort: "multiplier_desc",
+  modelKeyword: "gpt",
+});
+assert.equal(marketplaceFiltered.items.map((item) => item.id).join(","), "free-o");
+assert.equal(marketplaceFiltered.totalCount, 1);
+assert.equal(marketplaceFiltered.totalPages, 1);
+const marketplaceStats = helpers.marketplaceFilterStats(marketplacePayload, {
+  tag: "all",
+  badges: ["openai"],
+  free: true,
+  sort: "created_desc",
+  modelKeyword: "gpt",
+});
+assert.equal(marketplaceStats.total, 3);
+assert.equal(marketplaceStats.afterTag, 3);
+assert.equal(marketplaceStats.afterBadges, 2);
+assert.equal(marketplaceStats.afterFree, 1);
+assert.equal(marketplaceStats.afterModel, 1);
+assert.equal(marketplaceStats.state.modelKeyword, "gpt");
+assert.equal(helpers.marketplaceNextRenderLimit(100, 250, 100), 200);
+assert.equal(helpers.marketplaceNextRenderLimit(200, 250, 100), 250);
+const marketplaceLimited = helpers.limitMarketplaceChannelsPayload(marketplacePayload, 2);
+assert.equal(marketplaceLimited.items.map((item) => item.id).join(","), "paid,free-z");
+assert.equal(marketplaceLimited.totalCount, 3);
+assert.equal(marketplaceLimited.first, 2);
 
 let defaultSelection = helpers.nextDefaultChannelSelectionState({
   alreadySelected: false,
